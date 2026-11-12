@@ -12,6 +12,7 @@ const paths = {
   wallet: '<path d="M4 6h14a2 2 0 0 1 2 2v11H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2l11-2v3m4 5h-5a2 2 0 1 0 0 4h5"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9h-3a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3h-3m2.5-8v2m0 6v2"/>',
   cup: '<path d="M5 8h14l-2 12H7L5 8Zm-1 0h16M12 8l2-5h4M7 13h10"/>',
+  drop: '<path d="M12 3C9 7 6 10.4 6 14a6 6 0 0 0 12 0c0-3.6-3-7-6-11Z"/><path d="M9 15a3 3 0 0 0 2 2.5"/>',
   arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
   plus: '<path d="M5 12h14m-7-7v14"/>',
   minus: '<path d="M5 12h14"/>',

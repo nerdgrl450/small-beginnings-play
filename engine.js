@@ -1,16 +1,39 @@
-export const VERSION = 1;
+import { customers, MINUTES_PER_SLOT, SLOTS_PER_HOUR, visitorAt } from './traffic.js';
+
+export const VERSION = 2;
 export const OPEN_HOUR = 9;
 export const CLOSE_HOUR = 16;
 export const STALL_FEE = 100;
 export const RENT = 400;
+export const FOOD_COST = 225;
+export const SHELTER_UPKEEP = 75;
 export const SUPPLY_COST = 450;
 export const PACK_SIZE = 12;
+export const INGREDIENT_CAPACITY = 120;
+export const BATCH_SIZES = [3, 6, 12, 18];
 export const START_CAPACITY = 30;
 export const UPGRADE_CAPACITY = 60;
 export const MIN_PRICE = 75;
 export const MAX_PRICE = 350;
 export const PRICE_STEP = 25;
 export const BUSINESS_RESERVE = 550;
+export const UPGRADE_RESERVE = 2 * SUPPLY_COST + STALL_FEE;
+
+export const ingredients = {
+  lemons: { name: 'Lemons', unit: 'lemons', cost: 200, icon: 'lemon' },
+  sugar: { name: 'Sugar', unit: 'scoops', cost: 125, icon: 'sparkle' },
+  water: { name: 'Water', unit: 'measures', cost: 25, icon: 'drop' },
+  cups: { name: 'Paper cups', unit: 'cups', cost: 100, icon: 'cup' },
+};
+
+export const recipes = {
+  balanced: { name: 'Balanced', lemons: 3, sugar: 3, note: 'A classic. Sells steadily in any weather.' },
+  sweet: { name: 'Sweeter', lemons: 2, sugar: 4, note: 'A favorite at lunch or on cloudy days.' },
+  tangy: { name: 'Tangier', lemons: 4, sugar: 2, note: 'A favorite on warm days.' },
+};
+
+const ingredientIds = Object.keys(ingredients);
+const ingredientStock = (quantity) => Object.fromEntries(ingredientIds.map((id) => [id, quantity]));
 
 export const upgrades = {
   awning: { name: 'Garden awning', cost: 2000, description: 'A sage-striped canopy and flower garland. Draws one more shopper per hour.' },
@@ -20,11 +43,11 @@ export const upgrades = {
 export const decor = {
   lantern: { name: 'Brass lantern', cost: 600, description: 'A little pool of light after dark.' },
   planter: { name: 'Window-box flowers', cost: 1000, description: 'Terracotta and a spill of pink blooms.' },
-  quilt: { name: 'Patchwork quilt', cost: 1400, description: 'A hand-stitched layer of warmth.' },
+  quilt: { name: 'Patchwork quilt', cost: 1400, description: 'A hand-stitched layer of warmth. Saves 75¢ in nightly shelter supplies when placed.' },
 };
 
 export const homes = {
-  room: { name: 'Rented room', cost: 3800, description: 'A sunny upstairs room with a real bed. First night included, then $4 per night.' },
+  room: { name: 'Rented room', cost: 9500, description: 'A sunny upstairs room with a real bed. $95 to move in, first night included. Then $4 per night.' },
 };
 
 export const neighbors = {
@@ -38,9 +61,8 @@ const weather = [
   { name: 'Sunny', icon: 'sun', modifier: 0 },
   { name: 'Warm', icon: 'sun', modifier: 1 },
 ];
-const hourDemand = [2, 2, 3, 4, 3, 2, 2];
 
-const emptyLedger = () => ({ revenue: 0, expenses: 0, cups: 0, draw: 0 });
+const emptyLedger = () => ({ revenue: 0, expenses: 0, cups: 0, draw: 0, favorites: 0, visitors: 0, living: 0 });
 const amount = (number, minimum = 0, maximum = 1_000_000_000_000) =>
   Number.isSafeInteger(number) && number >= minimum && number <= maximum;
 const has = (object, key) => Object.hasOwn(object, key);
@@ -48,14 +70,14 @@ const has = (object, key) => Object.hasOwn(object, key);
 export function initialState() {
   return {
     version: VERSION,
-    day: 1, hour: 8, phase: 'morning',
-    business: 1300, personal: 700, price: 150, stock: 18,
+    day: 1, hour: 8, slot: 0, phase: 'morning',
+    business: 1300, personal: 700, price: 150, pantry: ingredientStock(18), batches: [],
     upgrades: { awning: false, cooler: false },
     owned: { lantern: false, planter: false, quilt: false },
     placed: { lantern: false, planter: false, quilt: false },
     home: 'shelter', rentPaidThrough: 0,
     today: emptyLedger(), previous: null,
-    totalCups: 0, lifetimeProfit: 0, totalDraw: 0, lastOfferHour: null,
+    totalCups: 0, lifetimeProfit: 0, totalDraw: 0, customer: null,
     neighbor: { mae: { visits: 0, lastDay: 0 } },
     log: [{ day: 1, text: 'You found a spot for your stand on Willow Lane.' }],
   };
@@ -66,10 +88,35 @@ export function forecast(day) {
 }
 
 export const capacity = (state) => state.upgrades.cooler ? UPGRADE_CAPACITY : START_CAPACITY;
+export const finishedServings = (state) => state.batches.reduce((total, batch) => total + batch.servings, 0);
+export const dailyPay = (state) => 1100 + Number(state.upgrades.awning) * 200 + Number(state.upgrades.cooler) * 200;
+export const livingCost = (state) => FOOD_COST + (state.home === 'shelter' && !state.placed.quilt ? SHELTER_UPKEEP : 0);
 export const availableDraw = (state) => Math.max(0, Math.min(
+  dailyPay(state) - state.today.draw,
   state.business - BUSINESS_RESERVE,
   state.lifetimeProfit - state.totalDraw,
 ));
+
+export function batchRequirements(recipe, servings) {
+  if (!has(recipes, recipe) || !BATCH_SIZES.includes(servings)) return null;
+  const { lemons, sugar } = recipes[recipe];
+  return { lemons: lemons * servings / 3, sugar: sugar * servings / 3, water: servings, cups: servings };
+}
+
+export function batchProblem(state, recipe, servings) {
+  const requirements = batchRequirements(recipe, servings);
+  if (!requirements) return 'Choose a recipe and batch size.';
+  if (state.phase === 'night') return 'The stand is closed for the night.';
+  if (finishedServings(state) + servings > capacity(state)) return 'There isn’t room for that many finished cups.';
+  const missing = ingredientIds.filter((id) => state.pantry[id] < requirements[id]);
+  return missing.length ? `You need more ${missing.map((id) => ingredients[id].name.toLowerCase()).join(', ')}.` : '';
+}
+
+function isFavorite(state, recipe) {
+  const climate = forecast(state.day).modifier;
+  if (recipe === 'tangy') return climate === 1;
+  return recipe === 'sweet' && (climate === -1 || (state.hour >= 11 && state.hour <= 13));
+}
 
 function addLog(state, text) {
   state.log.unshift({ day: state.day, text });
@@ -83,9 +130,16 @@ function spendBusiness(state, cents) {
 }
 
 function sell(state, cups, tip = 0) {
-  const count = Math.min(state.stock, cups);
+  let count = 0;
+  while (count < cups && state.batches.length) {
+    const batch = state.batches[0];
+    const served = Math.min(batch.servings, cups - count);
+    if (isFavorite(state, batch.recipe)) state.today.favorites += served;
+    batch.servings -= served;
+    count += served;
+    if (!batch.servings) state.batches.shift();
+  }
   const revenue = count * state.price + (count ? tip : 0);
-  state.stock -= count;
   state.business += revenue;
   state.today.revenue += revenue;
   state.today.cups += count;
@@ -94,20 +148,36 @@ function sell(state, cups, tip = 0) {
   return count;
 }
 
-function demand(state) {
-  const climate = forecast(state.day).modifier;
-  const pricePenalty = state.price > 275 ? 3 : state.price > 200 ? 2 : state.price > 150 ? 1 : 0;
-  const bargain = state.price <= 125 ? 1 : 0;
-  const chilled = state.upgrades.cooler && climate === 1 ? 1 : 0;
-  const hour = hourDemand[state.hour - OPEN_HOUR];
-  return Math.max(0, hour + climate + Number(state.upgrades.awning) + chilled + bargain - pricePenalty);
+function customerOrder(state, manual) {
+  const customer = state.customer;
+  if (!customer) return { cups: 0 };
+  const name = customers[customer.id].name;
+  const favorite = isFavorite(state, state.batches[0]?.recipe);
+  const budget = customer.budget + Number(favorite) * 35;
+  state.customer = null;
+  if (!state.batches.length) return { cups: 0, customerMessage: `${name} came by while you were sold out.` };
+  if (state.price > budget) return { cups: 0, customerMessage: `${name} passed at ${money(state.price)} a cup.` };
+  const tip = manual ? (favorite ? 35 : 25) : 0;
+  sell(state, 1, tip);
+  const reaction = favorite ? ' Loved this recipe!' : '';
+  return { cups: 1, customerMessage: `${name} bought a cup for ${money(state.price)}.${reaction}${tip ? ` +${tip}¢ tip.` : ''}` };
 }
 
-function tradeHour(state) {
-  const count = sell(state, demand(state));
-  state.hour += 1;
-  if (state.hour === CLOSE_HOUR) state.phase = 'closed';
-  return count;
+function tradePulse(state) {
+  const result = customerOrder(state, false);
+  state.slot += 1;
+  if (state.slot === SLOTS_PER_HOUR) {
+    state.slot = 0;
+    state.hour += 1;
+  }
+  if (state.hour === CLOSE_HOUR) {
+    state.phase = 'closed';
+  } else {
+    const favorite = isFavorite(state, state.batches[0]?.recipe);
+    state.customer = visitorAt(state, forecast(state.day).modifier, favorite);
+    if (state.customer) state.today.visitors += 1;
+  }
+  return result;
 }
 
 export function transition(current, action) {
@@ -122,44 +192,61 @@ export function transition(current, action) {
       state.price = action.cents;
       return accept('Price updated.');
 
-    case 'supplies':
-      if (state.stock + PACK_SIZE > capacity(state)) return reject('There isn’t room for another supply pack.');
-      if (state.business < SUPPLY_COST) return reject('The business needs more cash for supplies.');
-      spendBusiness(state, SUPPLY_COST);
-      state.stock += PACK_SIZE;
-      addLog(state, 'Bought a fresh pack of lemons, sugar, and cups.');
-      return accept('Added supplies for 12 cups.');
+    case 'supplies': {
+      if (id && !has(ingredients, id)) return reject('That ingredient is unavailable.');
+      const items = id ? [id] : ingredientIds;
+      const cost = id ? ingredients[id].cost : SUPPLY_COST;
+      if (items.some((item) => state.pantry[item] + PACK_SIZE > INGREDIENT_CAPACITY)) return reject('There isn’t room in the ingredient pantry.');
+      if (state.business - cost < STALL_FEE) return reject('Keep $1.00 in business cash for the stall fee.');
+      spendBusiness(state, cost);
+      for (const item of items) state.pantry[item] += PACK_SIZE;
+      const label = id ? ingredients[id].name.toLowerCase() : 'lemons, sugar, water, and paper cups';
+      addLog(state, `Bought ${label} for the ingredient pantry.`);
+      return accept(`Stored ${label} in the pantry.`);
+    }
+
+    case 'prepare': {
+      const { recipe, servings } = action;
+      const problem = batchProblem(state, recipe, servings);
+      if (problem) return reject(problem);
+      const requirements = batchRequirements(recipe, servings);
+      for (const item of ingredientIds) state.pantry[item] -= requirements[item];
+      const lastBatch = state.batches.at(-1);
+      if (lastBatch?.recipe === recipe) lastBatch.servings += servings;
+      else state.batches.push({ recipe, servings });
+      addLog(state, `Made ${servings} cups of ${recipes[recipe].name.toLowerCase()} lemonade.`);
+      return accept(`${servings} fresh cups of lemonade are ready.`);
+    }
 
     case 'open':
       if (state.phase !== 'morning') return reject('You can open again tomorrow.');
-      if (!state.stock) return reject('Restock before you open the stand.');
+      if (!state.batches.length) return reject('Make a batch of lemonade before you open the stand.');
       if (state.business < STALL_FEE) return reject('You need $1.00 to cover the stall fee.');
       spendBusiness(state, STALL_FEE);
       state.phase = 'trading';
       state.hour = OPEN_HOUR;
+      state.slot = 0;
       addLog(state, 'Opened the lemonade stand.');
       return accept('The stand is open.');
 
-    case 'trade': {
+    case 'pulse': {
       if (state.phase !== 'trading') return reject('The stand is closed.');
-      const cups = tradeHour(state);
+      const result = tradePulse(state);
       if (state.phase === 'closed') addLog(state, `Closed the stand after selling ${state.today.cups} cups.`);
-      return accept(cups ? `Sold ${cups} ${cups === 1 ? 'cup' : 'cups'}.` : 'A quiet hour at the stand.', { cups });
+      return accept(result.customerMessage || 'The stand is open.', result);
     }
 
     case 'serve': {
       if (state.phase !== 'trading') return reject('Open the stand to serve a customer.');
-      if (state.lastOfferHour === state.hour) return reject('A new passerby will come by next hour.');
-      if (!state.stock) return reject('Restock to serve the next customer.');
-      state.lastOfferHour = state.hour;
-      sell(state, 1, 25);
-      return accept('Served a cup and earned a 25¢ tip.', { cups: 1 });
+      if (!state.customer) return reject('Wait for a customer to stop by.');
+      const result = customerOrder(state, true);
+      return accept(result.customerMessage, result);
     }
 
     case 'finish': {
       if (state.phase !== 'trading') return reject('The stand is closed.');
       let cups = 0;
-      while (state.phase === 'trading') cups += tradeHour(state);
+      while (state.phase === 'trading') cups += tradePulse(state).cups;
       addLog(state, `Closed the stand after selling ${state.today.cups} cups.`);
       return accept(`Finished the shift. ${state.today.cups} sold today.`, { cups });
     }
@@ -167,7 +254,7 @@ export function transition(current, action) {
     case 'draw': {
       if (state.phase === 'trading') return reject('Close the stand before taking pay.');
       const payout = availableDraw(state);
-      if (!payout) return reject('There’s no profit available to take home yet.');
+      if (!payout) return reject('There’s no owner pay available today.');
       state.business -= payout;
       state.personal += payout;
       state.totalDraw += payout;
@@ -178,7 +265,7 @@ export function transition(current, action) {
 
     case 'upgrade':
       if (!has(upgrades, id) || state.upgrades[id]) return reject('That upgrade is already installed or unavailable.');
-      if (state.business - upgrades[id].cost < BUSINESS_RESERVE) return reject('Keep $5.50 in business cash for your next shift.');
+      if (state.business - upgrades[id].cost < UPGRADE_RESERVE) return reject(`Keep ${money(UPGRADE_RESERVE)} in business cash for your next shift.`);
       spendBusiness(state, upgrades[id].cost);
       state.upgrades[id] = true;
       addLog(state, `Upgraded the stand with a ${upgrades[id].name.toLowerCase()}.`);
@@ -200,7 +287,7 @@ export function transition(current, action) {
 
     case 'home':
       if (id !== 'room' || state.home === 'room') return reject('That home is unavailable.');
-      if (state.personal < homes.room.cost) return reject('Save $38.00 in your personal wallet to move in.');
+      if (state.personal < homes.room.cost) return reject(`Save ${money(homes.room.cost)} in your personal wallet to move in.`);
       state.personal -= homes.room.cost;
       state.home = 'room';
       state.rentPaidThrough = state.day;
@@ -212,6 +299,7 @@ export function transition(current, action) {
       if (state.phase === 'night') return reject('It’s already evening.');
       state.phase = 'night';
       state.hour = 20;
+      state.slot = 0;
       return accept('The lights are coming on around Willowbrook.');
 
     case 'sleep':
@@ -227,12 +315,17 @@ export function transition(current, action) {
           addLog(state, 'You couldn’t cover the room tonight and moved back to the garden.');
         }
       }
+      const spent = Math.min(state.personal, livingCost(state));
+      state.personal -= spent;
+      state.today.living = spent;
+      if (spent) addLog(state, `Spent ${money(spent)} on food and daily basics.`);
       state.previous = { day: state.day, ...state.today };
       state.today = emptyLedger();
       state.day += 1;
       state.hour = 8;
       state.phase = 'morning';
-      state.lastOfferHour = null;
+      state.slot = 0;
+      state.customer = null;
       return accept(`Good morning. It’s Day ${state.day}.`);
 
     case 'chat': {
@@ -254,7 +347,7 @@ export function transition(current, action) {
 
 const format = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 export const money = (cents) => format.format(cents / 100);
-export const clock = (hour) => `${hour % 12 || 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`;
+export const clock = (hour, slot = 0) => `${hour % 12 || 12}:${String(slot * MINUTES_PER_SLOT).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`;
 
 function validFlags(value, definitions) {
   return value && typeof value === 'object' &&
@@ -266,8 +359,8 @@ function validLedger(value) {
   return value && ['revenue', 'expenses', 'cups', 'draw'].every((key) => amount(value[key]));
 }
 
-export function validState(s) {
-  if (!s || s.version !== VERSION || !amount(s.day, 1) || !amount(s.hour, 8, 20)) return false;
+function validCommonState(s) {
+  if (!s || !amount(s.day, 1) || !amount(s.hour, 8, 20)) return false;
   const hours = { morning: [8, 8], trading: [9, 15], closed: [16, 16], night: [20, 20] };
   if (!has(hours, s.phase) || !amount(s.hour, ...hours[s.phase])) return false;
   if (!validFlags(s.upgrades, upgrades) || !validFlags(s.owned, decor) || !validFlags(s.placed, decor)) return false;
@@ -276,11 +369,43 @@ export function validState(s) {
       (s.home === 'shelter' && s.rentPaidThrough !== 0) || (s.home === 'room' && s.rentPaidThrough === 0)) return false;
   if (!['business', 'personal', 'totalCups', 'totalDraw'].every((key) => amount(s[key])) ||
       !amount(s.lifetimeProfit, -1_000_000_000_000)) return false;
-  if (!amount(s.stock, 0, capacity(s)) || !amount(s.price, MIN_PRICE, MAX_PRICE) || s.price % PRICE_STEP) return false;
+  if (!amount(s.price, MIN_PRICE, MAX_PRICE) || s.price % PRICE_STEP) return false;
   if (!validLedger(s.today) || (s.day === 1 ? s.previous !== null : !validLedger(s.previous) || s.previous.day !== s.day - 1)) return false;
-  if (s.lastOfferHour !== null && !amount(s.lastOfferHour, 9, Math.min(15, s.hour))) return false;
   const mae = s.neighbor?.mae;
   if (!mae || !amount(mae.lastDay, 0, s.day) || !amount(mae.visits, 0, mae.lastDay)) return false;
   return Array.isArray(s.log) && s.log.length <= 14 && s.log.every((item) =>
     item && amount(item.day, 1, s.day) && typeof item.text === 'string' && item.text.length <= 300);
+}
+
+export function validState(s) {
+  if (s?.version !== VERSION || !validCommonState(s) || has(s, 'stock')) return false;
+  if (!s.pantry || Object.keys(s.pantry).length !== ingredientIds.length ||
+      !ingredientIds.every((id) => has(s.pantry, id) && amount(s.pantry[id], 0, INGREDIENT_CAPACITY))) return false;
+  if (!Array.isArray(s.batches) || s.batches.length > capacity(s) || !s.batches.every((batch) =>
+    batch && has(recipes, batch.recipe) && amount(batch.servings, 1, capacity(s)))) return false;
+  const validShiftLedger = (ledger) => amount(ledger.favorites, 0, ledger.cups) &&
+    amount(ledger.visitors, ledger.cups) && amount(ledger.living);
+  if (!amount(s.slot, 0, s.phase === 'trading' ? SLOTS_PER_HOUR - 1 : 0)) return false;
+  if (s.customer !== null && (s.phase !== 'trading' || !amount(s.customer?.id, 0, customers.length - 1) ||
+    !amount(s.customer?.budget, 125, 325))) return false;
+  return finishedServings(s) <= capacity(s) && validShiftLedger(s.today) &&
+    (!s.previous || validShiftLedger(s.previous));
+}
+
+export function readSaveState(state) {
+  if (validState(state)) return state;
+  if (state?.version !== 1 || !validCommonState(state) || !amount(state.stock, 0, capacity(state))) return null;
+  if (state.lastOfferHour !== null && !amount(state.lastOfferHour, 9, Math.min(15, state.hour))) return null;
+  const { stock, lastOfferHour, ...legacy } = state;
+  const ledger = (old) => ({ ...old, favorites: 0, visitors: old.cups, living: 0 });
+  return {
+    ...legacy,
+    version: VERSION,
+    slot: 0,
+    customer: null,
+    pantry: ingredientStock(0),
+    batches: stock ? [{ recipe: 'balanced', servings: stock }] : [],
+    today: ledger(legacy.today),
+    previous: legacy.previous ? ledger(legacy.previous) : null,
+  };
 }

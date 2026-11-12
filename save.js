@@ -1,17 +1,26 @@
-import { initialState, validState } from './engine.js';
+import { initialState, readSaveState, validState } from './engine.js';
 
 const DB_NAME = 'small-beginnings';
+const DB_VERSION = 2;
 const STORE = 'saves';
 const FORMAT = 'small-beginnings-save';
 
 export class SaveConflict extends Error {}
-const validRecord = (record) => Number.isSafeInteger(record?.revision) && record.revision >= 1 && validState(record.state);
 const makeRecord = (state, revision) => ({ state, revision, savedAt: new Date().toISOString() });
+
+function readRecord(record) {
+  if (!Number.isSafeInteger(record?.revision) || record.revision < 1) return null;
+  const state = readSaveState(record.state);
+  if (!state) return null;
+  return state === record.state ? record : { ...record, state };
+}
 
 export async function openSave() {
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (event) => {
+      if (event.oldVersion === 0) request.result.createObjectStore(STORE);
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error('Close the other game tab and try again.'));
@@ -44,9 +53,15 @@ function transact(db, mutate) {
 
 export function loadSave(db) {
   return transact(db, (store, current, previous) => {
-    if (validRecord(current)) return { ...current, hasPrevious: validRecord(previous) };
-    if (validRecord(previous)) {
-      const restored = makeRecord(previous.state, previous.revision + 1);
+    const latest = readRecord(current);
+    const backup = readRecord(previous);
+    if (backup && backup !== previous) store.put(backup, 'previous');
+    if (latest) {
+      if (latest !== current) store.put(latest, 'current');
+      return { ...latest, hasPrevious: Boolean(backup) };
+    }
+    if (backup) {
+      const restored = makeRecord(backup.state, backup.revision + 1);
       store.put(restored, 'current');
       return { ...restored, hasPrevious: true, recovered: true };
     }
@@ -59,18 +74,18 @@ export function loadSave(db) {
 
 export function commitSave(db, expectedRevision, state, mode = 'normal') {
   return transact(db, (store, current, previous) => {
-    const currentValid = validRecord(current);
-    if (currentValid && current.revision !== expectedRevision) throw new SaveConflict();
-    if (!currentValid && mode !== 'import') throw new SaveConflict();
+    const latest = readRecord(current);
+    if (latest && latest.revision !== expectedRevision) throw new SaveConflict();
+    if (!latest && mode !== 'import') throw new SaveConflict();
 
-    const nextState = mode === 'restore' ? previous?.state : state;
+    const nextState = mode === 'restore' ? readRecord(previous)?.state : state;
     if (!validState(nextState)) throw new Error('The save format is invalid.');
-    const revision = currentValid ? current.revision + 1 : 1;
+    const revision = latest ? latest.revision + 1 : 1;
     const next = makeRecord(nextState, revision);
-    if (currentValid) store.put(current, 'previous');
+    if (latest) store.put(latest, 'previous');
     else store.delete('previous');
     store.put(next, 'current');
-    return { ...next, hasPrevious: currentValid };
+    return { ...next, hasPrevious: Boolean(latest) };
   });
 }
 
@@ -80,8 +95,9 @@ export function exportSave(state) {
 
 export function importSave(text) {
   const value = JSON.parse(text);
-  if (value?.format !== FORMAT || !validState(value.state)) {
+  const state = value?.format === FORMAT && readSaveState(value.state);
+  if (!state) {
     throw new Error('Choose a valid Small Beginnings save file.');
   }
-  return value.state;
+  return state;
 }
