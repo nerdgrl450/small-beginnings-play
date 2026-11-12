@@ -36,7 +36,7 @@ const ingredientIds = Object.keys(ingredients);
 const ingredientStock = (quantity) => Object.fromEntries(ingredientIds.map((id) => [id, quantity]));
 
 export const upgrades = {
-  awning: { name: 'Garden awning', cost: 2000, description: 'A sage-striped canopy and flower garland. Draws one more shopper per hour.' },
+  awning: { name: 'Garden awning', cost: 2000, description: 'A sage-striped canopy and flower garland. Brings more visitors throughout the day.' },
   cooler: { name: 'Ice chest', cost: 3600, description: 'A mint-green chest for the stand. Holds 30 extra servings and helps sales on warm days.' },
 };
 
