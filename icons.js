@@ -1,0 +1,28 @@
+const paths = {
+  sprout: '<path d="M7 20h10M12 20v-8m0 3C5 15 4 11 4 7c5 0 8 2 8 7m0 0c0-7 3-10 8-10 0 5-2 9-8 10"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/>',
+  moon: '<path d="M20.5 15.3A8.8 8.8 0 0 1 8.7 3.5 8.8 8.8 0 1 0 20.5 15.3Z"/>',
+  cloud: '<path d="M6.5 18a4.5 4.5 0 1 1 .4-9 5.5 5.5 0 0 1 10.6 1.5A3.8 3.8 0 0 1 18 18Z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="m10 3-.7 2.5-1.8.8-2.3-.9L3.4 8.5l1.8 1.7v2.1l-1.8 1.8 1.8 3.1 2.4-.8 1.7 1 .7 2.6h4l.7-2.6 1.8-1 2.3.8 1.8-3.1-1.8-1.8v-2.1l1.8-1.7-1.8-3.1-2.3.9-1.8-.8L14 3z"/>',
+  stand: '<path d="M4 11v9h16v-9M2 8l3-4h14l3 4v3a2.5 2.5 0 0 1-5 0 2.5 2.5 0 0 1-5 0 2.5 2.5 0 0 1-5 0 2.5 2.5 0 0 1-5 0Zm5 12v-4h6v4M2 8h20"/>',
+  home: '<path d="m3 11 9-7 9 7m-2-1v10H5V10m5 10v-6h4v6"/>',
+  basket: '<path d="M3 10h18l-2.5 9h-13zM7 10l4-6m6 6-4-6m-4 9 1 3m5-3-1 3"/>',
+  book: '<path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Zm0 0v14"/>',
+  wallet: '<path d="M4 6h14a2 2 0 0 1 2 2v11H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2l11-2v3m4 5h-5a2 2 0 1 0 0 4h5"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9h-3a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3h-3m2.5-8v2m0 6v2"/>',
+  cup: '<path d="M5 8h14l-2 12H7L5 8Zm-1 0h16M12 8l2-5h4M7 13h10"/>',
+  arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+  plus: '<path d="M5 12h14m-7-7v14"/>',
+  minus: '<path d="M5 12h14"/>',
+  x: '<path d="m6 6 12 12M6 18 18 6"/>',
+  pin: '<path d="M19 10c0 5-7 10-7 10s-7-5-7-10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  lemon: '<path d="M5 10c1.5-4 6-6 10-4 2-.7 3-.7 4 .5s.6 2.6-.5 4c.6 4.1-2.1 7.6-6 8.6-2.2.5-4.1 0-5.7-1-.9.4-2 .6-2.8-.4-.8-1 .1-2.1.5-2.7-.5-1.6-.2-3.5.5-5Z"/><path d="M8 10c1-1.4 2.1-2 3.2-2.2"/>',
+  sparkle: '<path d="M12 2c0 6-4 10-10 10 6 0 10 4 10 10 0-6 4-10 10-10-6 0-10-4-10-10Z"/>',
+  chat: '<path d="M20 11a8 7 0 0 1-8 7H5l1.8-3A6.5 6.5 0 0 1 4 11a8 7 0 0 1 16 0ZM8 11h8"/>',
+};
+
+export function icon(name) {
+  return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? ''}</svg>`;
+}

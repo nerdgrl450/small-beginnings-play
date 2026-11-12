@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "Small Beginnings",
+  "short_name": "Small Beginnings",
+  "description": "Grow a lemonade stand and build a life of your own in Willowbrook.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f2e8",
+  "theme_color": "#f6f2e8",
+  "icons": [
+    { "src": "./art/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./art/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
